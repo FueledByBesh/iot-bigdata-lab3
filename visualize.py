@@ -1,12 +1,13 @@
 """Live visualisation: watch a controller manage traffic, decision by decision.
 
     python visualize.py                      # Part A: isolated intersection, trained FNN-GA
-    python visualize.py --part B             # Part B: 3x3 grid, incident, coordinated FNN-GA
-    python visualize.py --part B --incident-start 5 --incident-end 20  # playback minutes
-    python visualize.py --part B --no-incident  # same traffic, unrestricted exits
+    python visualize.py --part B             # Part B: 3x3 grid, normal balanced traffic
+    python visualize.py --part B --scenario rush-hour  # demand rises to 1.9x, then falls
+    python visualize.py --part B --scenario incident   # exit restriction, minutes 5-35
+    python visualize.py --part B --scenario incident --incident-start 5 --incident-end 20
     python visualize.py --part C             # Part C: 3x3 grid, real METR-LA morning rush
     python visualize.py --controller fixed   # same scene with another controller (see --help)
-    python visualize.py --part B --snapshot shot.png --at 1500   # save one frame instead of a window
+    python visualize.py --part B --scenario incident --snapshot shot.png --at 1500
 
 Left: the simulator. Every vehicle is drawn where it really is (grey = moving,
 orange = queued at the stop line), the bar at each stop line is that approach's
@@ -153,20 +154,24 @@ def scene_a(controller):
                 clock=lambda t: f"t = {_hms(t - 600)}", sel=(0, 0), choices=list(choices))
 
 
-def scene_b(controller, incident=True, incident_start=5.0, incident_end=35.0):
+def scene_b(controller, scenario=None, incident_start=5.0, incident_end=35.0):
     from experiments.part_b import scenarios, entry_rates, ROWS, COLS
     cfg = DEFAULT
     net3 = FNN.load(R.MODELS / "fnn3_trained.npz", cfg.ga.offset_frac)
     net4 = net3.expand_to_4_inputs()
-    sc = scenarios(cfg.warmup_s, quick=False)["incident"]
+    configs = scenarios(cfg.warmup_s, quick=False)
+    scenario_key = {None: "balanced", "rush-hour": "rush hour", "incident": "incident"}[scenario]
+    sc = configs[scenario_key]
     probe = GridSim(ROWS, COLS, lambda _: FixedController([20, 20]), cfg)
     base = entry_rates(probe, sc["side_vph"], cfg.road.lanes)
-    ef = expected_side_flows(ROWS, COLS, base, probe.entries, cfg.road.turn_probs)
+    rates = base[:, None] * sc["shape"][None]
+    ef = expected_side_flows(ROWS, COLS, rates.mean(axis=1), probe.entries, cfg.road.turn_probs)
     # Keep the playback window fixed so timing changes preserve the arrival sequence.
-    t0 = sc["exit_caps"]["E"][1] - 300
+    incident_cap, default_inc0, _ = configs["incident"]["exit_caps"]["E"]
+    t0 = default_inc0 - 300
     inc0 = t0 + int(round(incident_start * 60))
     inc1 = t0 + int(round(incident_end * 60))
-    exit_caps = {"E": (sc["exit_caps"]["E"][0], inc0, inc1)} if incident else {}
+    exit_caps = {"E": (incident_cap, inc0, inc1)} if scenario == "incident" else {}
     log = {}
     choices = {
         "coord": ("FNN-GA coordinated (shared input D)", lambda n: LoggedFNN(net4, cfg, n, log), net4),
@@ -176,11 +181,19 @@ def scene_b(controller, incident=True, incident_start=5.0, incident_end=35.0):
     title, mk, net = choices[controller]
 
     def clock(t):
-        state = "INCIDENT: east exits 900 veh/h" if incident and inc0 <= t < inc1 else "east exits normal"
+        if scenario == "rush-hour":
+            factor = sc["shape"][min(int(t), len(sc["shape"]) - 1)]
+            state = f"RUSH HOUR: input traffic {factor:.2f}x baseline"
+        else:
+            state = ("INCIDENT: east exits 900 veh/h"
+                     if scenario == "incident" and inc0 <= t < inc1 else "east exits normal")
         return f"t = {_hms(t - t0)}   {state}"
-    scenario_title = (f"eastbound exit incident (minutes {incident_start:g}-{incident_end:g})"
-                      if incident else "normal exits (no incident)")
-    return dict(cfg=cfg, rows=ROWS, cols=COLS, make=mk, rates=base[:, None] * sc["shape"][None],
+    scenario_title = {
+        None: "normal balanced traffic",
+        "rush-hour": "rush hour (demand rises to 1.9x, then falls)",
+        "incident": f"eastbound exit incident (minutes {incident_start:g}-{incident_end:g})",
+    }[scenario]
+    return dict(cfg=cfg, rows=ROWS, cols=COLS, make=mk, rates=rates,
                 duration=sc["duration"], t0=t0, t1=t0 + 3600, every=2, exit_caps=exit_caps,
                 lane_w=6.0, marker=5, log=log, net=net, sel=(1, 1), choices=list(choices), clock=clock,
                 title=f"Part B - 3x3 grid, {scenario_title}: {title}")
@@ -491,7 +504,8 @@ def main():
                     help="A: fnn | flc | fixed    B, C: coord | naive | fixed   (default: the trained/coordinated one)")
     ap.add_argument("--data", default=str(ROOT / "data" / "kaggle" / "METR-LA.h5"))
     ap.add_argument("--seed", type=int, default=11)
-    ap.add_argument("--no-incident", action="store_true", help="Part B: remove the exit restriction, keeping the same input traffic")
+    ap.add_argument("--scenario", choices=["incident", "rush-hour"], default=None,
+                    help="Part B: choose an event (default: normal balanced traffic)")
     ap.add_argument("--incident-start", type=float, default=None,
                     help="Part B: incident start in playback minutes (default: 5)")
     ap.add_argument("--incident-end", type=float, default=None,
@@ -500,10 +514,10 @@ def main():
     ap.add_argument("--at", type=float, default=600, help="with --snapshot: seconds into the scene")
     a = ap.parse_args()
     custom_incident = a.incident_start is not None or a.incident_end is not None
-    if (a.no_incident or custom_incident) and a.part != "B":
-        ap.error("incident options are only available for Part B")
-    if a.no_incident and custom_incident:
-        ap.error("--no-incident cannot be combined with --incident-start or --incident-end")
+    if (a.scenario is not None or custom_incident) and a.part != "B":
+        ap.error("scenario and incident options are only available for Part B")
+    if custom_incident and a.scenario != "incident":
+        ap.error("--incident-start and --incident-end require --scenario incident")
     incident_start = 5.0 if a.incident_start is None else a.incident_start
     incident_end = 35.0 if a.incident_end is None else a.incident_end
     if not 0 <= incident_start < incident_end <= 60:
@@ -516,7 +530,7 @@ def main():
     if a.part == "A":
         sc = scene_a(ctrl)
     elif a.part == "B":
-        sc = scene_b(ctrl, incident=not a.no_incident,
+        sc = scene_b(ctrl, scenario=a.scenario,
                      incident_start=incident_start, incident_end=incident_end)
     else:
         if not Path(a.data).exists():

@@ -189,27 +189,39 @@ failed at "very high"; including saturated demand in training fixed it (see the 
 
 ```bash
 python visualize.py                      # Part A: isolated intersection, trained FNN-GA, very high demand
-python visualize.py --part B             # Part B: 3x3 grid, exit incident, coordinated FNN-GA
-python visualize.py --part B --incident-start 5 --incident-end 20  # custom incident interval
-python visualize.py --part B --no-incident  # same Part B traffic, unrestricted exits
+python visualize.py --part B             # Part B: 3x3 grid, normal balanced traffic
+python visualize.py --part B --scenario rush-hour  # growing and falling demand
+python visualize.py --part B --scenario incident   # exit restriction, minutes 5-35
+python visualize.py --part B --scenario incident --incident-start 5 --incident-end 20
 python visualize.py --part C             # Part C: 3x3 grid, real METR-LA morning rush 06:00-11:00
 python visualize.py --controller flc     # A: fnn | flc | fixed      B, C: coord | naive | fixed
-python visualize.py --part B --snapshot shot.png --at 1900   # save a frame (e.g. for the report)
+python visualize.py --part B --scenario incident --snapshot shot.png --at 1900
 ```
 
 The scene is simulated first (1-10 s), then played back in a window (needs `sudo apt install python3-tk`).
 
-Part B's incident is scheduled: by default it limits each eastbound exit to
-900 veh/h from minute 5 to minute 35 of playback (simulation minutes 30-60).
-Use `--incident-start 5 --incident-end 20` for playback minutes 5-20. Both values
-are minutes on the window's clock, with `0 <= start < end <= 60`; omitted bounds
+Part B uses normal balanced traffic when `--scenario` is omitted: 350 veh/h/lane
+on N/S boundary entries and 300 on E/W, with no exit restriction. The former
+`--no-incident` flag has been removed.
+
+`--scenario incident` limits each eastbound exit to 900 veh/h, by default from
+minute 5 to minute 35 of playback (simulation minutes 30-60). Add
+`--incident-start 5 --incident-end 20` for playback minutes 5-20. Both values are
+minutes on the window's clock, with `0 <= start < end <= 60`; omitted bounds
 keep their defaults. Fractional minutes are rounded to simulation seconds.
-The one-hour playback window stays fixed, so the same seed gives the same
-incoming traffic when the incident interval changes. Use `--no-incident` to
-disable the restriction; it cannot be combined with custom incident times.
-These options work with `--controller coord`, `naive`, or `fixed`. They only
-affect visualization scenarios, do not change `main.py` experiments or model
-files, and require no re-training.
+Incident timing options require `--scenario incident`. The one-hour playback
+window stays fixed, so the same seed gives the same incoming traffic when
+only the incident interval changes.
+
+`--scenario rush-hour` uses the existing Part B rush-hour profile: demand rises
+from its baseline at minute 0 to 1.9 times baseline at minute 30, then returns
+to baseline at minute 60. Exits remain unrestricted. This uses 450 veh/h/lane
+on N/S entries, 380 on E and 420 on W as its baseline. There are no separate
+rush-hour timing options.
+
+All Part B scenarios work with `--controller coord`, `naive`, or `fixed`.
+These options only affect visualization scenarios, do not change `main.py`
+experiments or model files, and require no re-training.
 
 - **Left:** the simulator. Every vehicle is drawn at its real position (grey = moving, orange = queued),
   the bar at each stop line is that approach's signal, a red-shaded link is full (spillback), and red
