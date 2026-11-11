@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data/raw/
+data/kaggle/*.h5
+data/kaggle/*.pkl
+data/processed/

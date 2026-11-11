@@ -1,0 +1,176 @@
+{
+  "profile": {
+    "time_start": "2012-03-01 00:00:00",
+    "time_end": "2012-06-27 23:55:00",
+    "n_timesteps": 34272,
+    "n_sensors": 207,
+    "sampling_interval": "0 days 00:05:00",
+    "irregular_steps": 0,
+    "units": "mph (average speed per 5 min); 0 = missing",
+    "missing_frac_total": 0.08109350825676487,
+    "missing_frac_sensor_median": 0.06973622782446312,
+    "missing_frac_sensor_max": 0.2010387488328665,
+    "sensors_over_10pct_missing": 34,
+    "timesteps_all_sensors_missing": 2148,
+    "speed_min_valid": 0.3333333333333333,
+    "speed_max_valid": 70.0,
+    "speed_mean_valid": 58.45972532036905,
+    "cleaning_missing_before": 0.08109350825676487,
+    "cleaning_filled_by_interpolation": 0.012459432243106583,
+    "cleaning_missing_after": 0.0,
+    "cleaning_filled_by_time_of_week_median": 0.06863407601365829,
+    "selected_sensors": [
+      "717608",
+      "767542",
+      "718066",
+      "767351",
+      "772596",
+      "772168",
+      "760024",
+      "772597",
+      "717825",
+      "717468",
+      "764766",
+      "718064"
+    ],
+    "eval_day": "2012-03-13",
+    "retune_train_day": "2012-03-14",
+    "sensors_passing_selection": 93
+  },
+  "retune": {
+    "train_day": "2012-03-14",
+    "samples": 5671,
+    "train_E": 0.026062324399971203,
+    "generations": 200,
+    "converged": false,
+    "ga_params": {
+      "population": 220,
+      "crossover": 0.5,
+      "mutation": 0.01,
+      "epsilon": 0.01
+    }
+  },
+  "inputs": {
+    "decisions_synthetic": 4484,
+    "decisions_real": 4657,
+    "qg_p99_syn": 1.6666666666666667,
+    "qg_p99_real": 18.333333333333332,
+    "qr_p99_syn": 3.3333333333333335,
+    "qr_p99_real": 17.666666666666668,
+    "share_qr_in_VL_syn": 0.0,
+    "share_qr_in_VL_real": 0.01309856130556152,
+    "share_qg_above_universe_real": 0.0036504187245007514,
+    "share_qr_above_universe_real": 0.003006227184882972,
+    "rules_firing_only_under_real_data": [
+      "S/L/M",
+      "M/M/H",
+      "M/L/M",
+      "M/VL/M",
+      "L/M/L",
+      "L/M/M",
+      "L/M/H",
+      "L/L/L",
+      "L/L/M",
+      "L/VL/L",
+      "L/VL/M",
+      "L/VL/H",
+      "VL/M/M",
+      "VL/L/L",
+      "VL/L/M",
+      "VL/L/H",
+      "VL/VL/L",
+      "VL/VL/M",
+      "VL/VL/H"
+    ],
+    "D_share_congested_or_blocked_syn": 0.0,
+    "D_share_congested_or_blocked_real": 0.002120273072531979
+  },
+  "single": [
+    {
+      "input": "synthetic",
+      "controller": "Fixed (Webster)",
+      "avg_queue": 2.9070920745920747,
+      "avg_wait": 11.56258158869115,
+      "p95_wait": 26.0
+    },
+    {
+      "input": "synthetic",
+      "controller": "FNN-GA",
+      "avg_queue": 2.8146182983682984,
+      "avg_wait": 11.194350548192466,
+      "p95_wait": 27.0
+    },
+    {
+      "input": "synthetic",
+      "controller": "FNN-GA retuned",
+      "avg_queue": 2.7732323232323233,
+      "avg_wait": 11.030237828176157,
+      "p95_wait": 26.0
+    },
+    {
+      "input": "real (METR-LA)",
+      "controller": "Fixed (Webster)",
+      "avg_queue": 11.502234848484848,
+      "avg_wait": 45.75058858358427,
+      "p95_wait": 147.0
+    },
+    {
+      "input": "real (METR-LA)",
+      "controller": "FNN-GA",
+      "avg_queue": 3.908094405594406,
+      "avg_wait": 15.544643536567358,
+      "p95_wait": 47.0
+    },
+    {
+      "input": "real (METR-LA)",
+      "controller": "FNN-GA retuned",
+      "avg_queue": 3.8576359751359752,
+      "avg_wait": 15.344004228070721,
+      "p95_wait": 46.333333333333336
+    }
+  ],
+  "network": [
+    {
+      "input": "synthetic",
+      "controller": "Fixed (Webster)",
+      "avg_queue": 3.4553315203315202,
+      "avg_wait": 13.372548200345218,
+      "p95_wait": 27.0
+    },
+    {
+      "input": "synthetic",
+      "controller": "FNN-GA naive",
+      "avg_queue": 2.5709874384874385,
+      "avg_wait": 9.957040581878724,
+      "p95_wait": 26.0
+    },
+    {
+      "input": "synthetic",
+      "controller": "FNN-GA coordinated",
+      "avg_queue": 2.5709874384874385,
+      "avg_wait": 9.957040581878724,
+      "p95_wait": 26.0
+    },
+    {
+      "input": "real (METR-LA)",
+      "controller": "Fixed (Webster)",
+      "avg_queue": 6.788875453250453,
+      "avg_wait": 26.237879308387512,
+      "p95_wait": 142.5
+    },
+    {
+      "input": "real (METR-LA)",
+      "controller": "FNN-GA naive",
+      "avg_queue": 3.080133547008547,
+      "avg_wait": 11.908898618848509,
+      "p95_wait": 31.0
+    },
+    {
+      "input": "real (METR-LA)",
+      "controller": "FNN-GA coordinated",
+      "avg_queue": 3.0953303872053874,
+      "avg_wait": 11.968031826063417,
+      "p95_wait": 31.0
+    }
+  ]
+}

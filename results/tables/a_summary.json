@@ -1,0 +1,106 @@
+{
+  "fnn_flc_max_diff": 7.105427357601002e-15,
+  "ga": {
+    "train_E": 0.03315540731913441,
+    "val_E": 0.037103332693911285,
+    "generations": 200,
+    "converged": false,
+    "initial_E": 0.08362106247731693,
+    "rmse_s": 5.462587902013199,
+    "n_train": 3889,
+    "n_val": 973
+  },
+  "rules_changed_term": 29,
+  "baseline": [
+    {
+      "scenario": "low",
+      "controller": "Fixed (Webster)",
+      "avg_queue": 1.5308194444444445,
+      "avg_wait": 10.532320503368826
+    },
+    {
+      "scenario": "low",
+      "controller": "FLC (paper rules)",
+      "avg_queue": 1.6183125,
+      "avg_wait": 11.1431703895021
+    },
+    {
+      "scenario": "low",
+      "controller": "FNN-GA",
+      "avg_queue": 1.4347847222222223,
+      "avg_wait": 9.87306915166839
+    },
+    {
+      "scenario": "medium",
+      "controller": "Fixed (Webster)",
+      "avg_queue": 3.531173611111111,
+      "avg_wait": 12.06567010299079
+    },
+    {
+      "scenario": "medium",
+      "controller": "FLC (paper rules)",
+      "avg_queue": 3.7571527777777782,
+      "avg_wait": 12.839789834087762
+    },
+    {
+      "scenario": "medium",
+      "controller": "FNN-GA",
+      "avg_queue": 3.3921527777777776,
+      "avg_wait": 11.593779686014775
+    },
+    {
+      "scenario": "high",
+      "controller": "Fixed (Webster)",
+      "avg_queue": 6.847493055555556,
+      "avg_wait": 16.45467057698158
+    },
+    {
+      "scenario": "high",
+      "controller": "FLC (paper rules)",
+      "avg_queue": 11.631756944444444,
+      "avg_wait": 27.988292483838386
+    },
+    {
+      "scenario": "high",
+      "controller": "FNN-GA",
+      "avg_queue": 5.876152777777778,
+      "avg_wait": 14.121843782167867
+    },
+    {
+      "scenario": "very high",
+      "controller": "Fixed (Webster)",
+      "avg_queue": 10.951048611111112,
+      "avg_wait": 21.840045573568784
+    },
+    {
+      "scenario": "very high",
+      "controller": "FLC (paper rules)",
+      "avg_queue": 72.3345625,
+      "avg_wait": 176.94967228169094
+    },
+    {
+      "scenario": "very high",
+      "controller": "FNN-GA",
+      "avg_queue": 8.9873125,
+      "avg_wait": 17.932179164011526
+    },
+    {
+      "scenario": "asymmetric",
+      "controller": "Fixed (Webster)",
+      "avg_queue": 3.2382916666666666,
+      "avg_wait": 10.374889083569434
+    },
+    {
+      "scenario": "asymmetric",
+      "controller": "FLC (paper rules)",
+      "avg_queue": 4.209847222222222,
+      "avg_wait": 13.484456773222268
+    },
+    {
+      "scenario": "asymmetric",
+      "controller": "FNN-GA",
+      "avg_queue": 3.210916666666667,
+      "avg_wait": 10.288116082192648
+    }
+  ]
+}
