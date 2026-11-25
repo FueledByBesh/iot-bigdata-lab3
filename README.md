@@ -188,40 +188,46 @@ failed at "very high"; including saturated demand in training fixed it (see the 
 ## Live visualisation (`visualize.py`)
 
 ```bash
-python visualize.py                      # Part A: isolated intersection, trained FNN-GA, very high demand
-python visualize.py --part B             # Part B: 3x3 grid, normal balanced traffic
-python visualize.py --part B --scenario rush-hour  # growing and falling demand
-python visualize.py --part B --scenario incident   # exit restriction, minutes 5-35
-python visualize.py --part B --scenario incident --incident-start 5 --incident-end 20
-python visualize.py --part C             # Part C: 3x3 grid, real METR-LA morning rush 06:00-11:00
-python visualize.py --controller flc     # A: fnn | flc | fixed      B, C: coord | naive | fixed
-python visualize.py --part B --scenario incident --snapshot shot.png --at 1900
+python visualize.py --part A --scenario medium --controller flc
+python visualize.py --part B --scenario rush-hour --controller naive
+python visualize.py --part B --scenario incident --controller coord
+python visualize.py --part C --controller synthetic-coord
+python visualize.py --part C --controller metr-coord
+python visualize.py --part C --controller metr-coord --snapshot shot.png --at 10800
 ```
 
-The scene is simulated first (1-10 s), then played back in a window (needs `sudo apt install python3-tk`).
+The viewer simulates the selected run, then plays it back in a window. On
+Ubuntu, install `python3-tk` for the Tk window backend. Use `--snapshot` for a
+PNG without a window. `--at` is in seconds from the start of playback, so
+`--at 10800` in Part C selects 09:00.
 
-Part B uses normal balanced traffic when `--scenario` is omitted: 350 veh/h/lane
-on N/S boundary entries and 300 on E/W, with no exit restriction. The former
-`--no-incident` flag has been removed.
+| Part | Scenarios | Controllers |
+| --- | --- | --- |
+| A | `low`, `medium`, `high`, `very-high` (default), `asymmetric` | `fnn` (default), `flc`, `fixed` |
+| B | `balanced` (default), `rush-hour`, `incident` | `coord` (default), `naive`, `fixed` |
+| C | METR-LA, 13 March 2012, 06:00–11:00 | `synthetic-coord` (default), `synthetic-naive`, `metr-coord`, `metr-naive`, `fixed` |
 
-`--scenario incident` limits each eastbound exit to 900 veh/h, by default from
-minute 5 to minute 35 of playback (simulation minutes 30-60). Add
-`--incident-start 5 --incident-end 20` for playback minutes 5-20. Both values are
-minutes on the window's clock, with `0 <= start < end <= 60`; omitted bounds
-keep their defaults. Fractional minutes are rounded to simulation seconds.
-Incident timing options require `--scenario incident`. The one-hour playback
-window stays fixed, so the same seed gives the same incoming traffic when
-only the incident interval changes.
+Part A plays 120 minutes after a 10-minute warm-up. N/S and E/W demand in
+vehicles per hour per lane is 200/150 (low), 400/300 (medium), 550/450 (high),
+650/550 (very high), or 600/150 (asymmetric).
 
-`--scenario rush-hour` uses the existing Part B rush-hour profile: demand rises
-from its baseline at minute 0 to 1.9 times baseline at minute 30, then returns
-to baseline at minute 60. Exits remain unrestricted. This uses 450 veh/h/lane
-on N/S entries, 380 on E and 420 on W as its baseline. There are no separate
-rush-hour timing options.
+Part B plays 90 minutes after a 10-minute warm-up. Balanced demand is 350 on
+N/S and 300 on E/W. Rush-hour baseline demand is 450 on N/S, 380 on E and
+420 on W. It rises from 1× at minute 15 to 1.9× at minute 45, then returns to
+1× at minute 75. Incident demand is 350 on N/S, 300 on E and 550 on W, with
+each eastbound exit capped at 900 vehicles per hour from minute 20 to 50.
+With `--scenario incident`, `--incident-start` and `--incident-end` override
+those two minutes on the playback clock (`0 <= start < end <= 90`).
 
-All Part B scenarios work with `--controller coord`, `naive`, or `fixed`.
-These options only affect visualization scenarios, do not change `main.py`
-experiments or model files, and require no re-training.
+Part C simulates from midnight and displays the report's 06:00–11:00 window.
+All five controllers draw the same demand and arrival sequence when given the
+same seed. `synthetic-*` uses the Part A weights. `metr-*` uses the saved model
+trained on traffic derived from METR-LA on 14 March. `coord` and `naive` are
+also accepted in Part C as aliases for the synthetic variants.
+
+Default seeds are 1000 for A, 2000 for B (the first runs used in the report's
+averages), and 11 for C (the run shown in the report). Use `--seed` to choose
+another run. The visualisation loads existing model weights.
 
 - **Left:** the simulator. Every vehicle is drawn at its real position (grey = moving, orange = queued),
   the bar at each stop line is that approach's signal, a red-shaded link is full (spillback), and red

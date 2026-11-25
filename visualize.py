@@ -1,13 +1,12 @@
 """Live visualisation: watch a controller manage traffic, decision by decision.
 
-    python visualize.py                      # Part A: isolated intersection, trained FNN-GA
-    python visualize.py --part B             # Part B: 3x3 grid, normal balanced traffic
+    python visualize.py                      # Part A: isolated intersection, very high demand
+    python visualize.py --part A --scenario medium --controller flc
+    python visualize.py --part B --scenario balanced
     python visualize.py --part B --scenario rush-hour  # demand rises to 1.9x, then falls
-    python visualize.py --part B --scenario incident   # exit restriction, minutes 5-35
-    python visualize.py --part B --scenario incident --incident-start 5 --incident-end 20
-    python visualize.py --part C             # Part C: 3x3 grid, real METR-LA morning rush
-    python visualize.py --controller fixed   # same scene with another controller (see --help)
-    python visualize.py --part B --scenario incident --snapshot shot.png --at 1500
+    python visualize.py --part B --scenario incident   # exit restriction, minutes 20-50
+    python visualize.py --part C --controller metr-coord
+    python visualize.py --part C --controller synthetic-coord --snapshot shot.png --at 10800
 
 Left: the simulator. Every vehicle is drawn where it really is (grey = moving,
 orange = queued at the stop line), the bar at each stop line is that approach's
@@ -33,24 +32,6 @@ from pathlib import Path
 os.environ["LAB3_INTERACTIVE"] = "1"
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-
-import matplotlib  # noqa: E402
-
-if "--snapshot" in sys.argv:
-    matplotlib.use("Agg")
-else:
-    for _b in ("TkAgg", "QtAgg", "GTK3Agg"):
-        try:
-            matplotlib.use(_b, force=True)
-            import matplotlib.pyplot as _plt  # noqa: F401
-            _plt.figure()
-            _plt.close("all")
-            break
-        except Exception:
-            continue
-    else:
-        sys.exit("No window backend available. On Ubuntu:  sudo apt install python3-tk   "
-                 "(or use --snapshot file.png to save a frame instead).")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
@@ -136,97 +117,141 @@ class Recorder:
 
 
 # --------------------------------------------------------------------------- scenes
-def scene_a(controller):
-    from experiments.part_a import part_a_config, side_rates
+def scene_a(controller, scenario=None):
+    from experiments.part_a import SCENARIOS, part_a_config, side_rates
     cfg = part_a_config(DEFAULT)
-    net = FNN.load(R.MODELS / "fnn3_trained.npz", cfg.ga.offset_frac)
-    rates = side_rates(650, 550, cfg.road.lanes)
+    scenario_name = (scenario or "very-high").replace("-", " ")
+    ns, ew = SCENARIOS[scenario_name]
+    rates = side_rates(ns, ew, cfg.road.lanes)
+    t0, duration = cfg.warmup_s, cfg.warmup_s + 7200
+    net = (_load_synthetic_model(cfg) if controller == "fnn"
+           else FNN(3, cfg.signal.e_max, cfg.ga.offset_frac))
     log = {}
     choices = {
         "fnn": ("FNN-GA (trained)", lambda n: LoggedFNN(net, cfg, n, log)),
-        "flc": ("FLC, paper rules (untrained)", lambda n: LoggedFNN(FNN(3, cfg.signal.e_max, cfg.ga.offset_frac), cfg, n, log)),
+        "flc": ("Initial FLC", lambda n: LoggedFNN(net, cfg, n, log)),
         "fixed": ("Fixed cycle (Webster)", lambda n: FixedController(webster_plan(rates, cfg))),
     }
     title, mk = choices[controller]
-    return dict(cfg=cfg, rows=1, cols=1, make=mk, rates=rates, duration=2400, t0=600, t1=2400, every=1,
-                exit_caps=None, lane_w=8.0, marker=30, log=log, net=net if controller == "fnn" else FNN(3),
-                title=f"Part A - isolated intersection, very high demand (650 N-S / 550 E-W veh/h/lane): {title}",
-                clock=lambda t: f"t = {_hms(t - 600)}", sel=(0, 0), choices=list(choices))
+    return dict(cfg=cfg, rows=1, cols=1, make=mk, rates=rates, duration=duration, t0=t0, t1=duration, every=1,
+                exit_caps=None, lane_w=8.0, marker=30, log=log, net=net,
+                title=f"Part A - {scenario_name} demand ({ns} N/S, {ew} E/W veh/h/lane): {title}",
+                clock=lambda t: f"t = {_hms(t - t0)}", sel=(0, 0), choices=list(choices))
 
 
-def scene_b(controller, scenario=None, incident_start=5.0, incident_end=35.0):
+def _load_synthetic_model(cfg):
+    path = R.MODELS / "fnn3_trained.npz"
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} missing. Run python main.py --part A first.")
+    return FNN.load(path, cfg.ga.offset_frac)
+
+
+def scene_b(controller, scenario=None, incident_start=None, incident_end=None):
     from experiments.part_b import scenarios, entry_rates, ROWS, COLS
     cfg = DEFAULT
-    net3 = FNN.load(R.MODELS / "fnn3_trained.npz", cfg.ga.offset_frac)
-    net4 = net3.expand_to_4_inputs()
-    configs = scenarios(cfg.warmup_s, quick=False)
-    scenario_key = {None: "balanced", "rush-hour": "rush hour", "incident": "incident"}[scenario]
-    sc = configs[scenario_key]
+    t0 = cfg.warmup_s
+    scenario_name = (scenario or "balanced").replace("-", " ")
+    sc = scenarios(t0, quick=False)[scenario_name]
+    exit_caps = sc["exit_caps"]
+    if scenario_name == "incident":
+        cap, default_start, default_end = exit_caps["E"]
+        start_min = (default_start - t0) / 60 if incident_start is None else incident_start
+        end_min = (default_end - t0) / 60 if incident_end is None else incident_end
+        window_min = (sc["duration"] - t0) / 60
+        if not 0 <= start_min < end_min <= window_min:
+            raise ValueError(f"Incident times must satisfy 0 <= start < end <= {window_min:g} playback minutes.")
+        start, end = t0 + round(start_min * 60), t0 + round(end_min * 60)
+        if start >= end:
+            raise ValueError("Incident must last at least one second after rounding.")
+        exit_caps = {"E": (cap, start, end)}
+        scenario_title = f"eastbound exit incident (minutes {(start - t0) / 60:g}-{(end - t0) / 60:g})"
+    else:
+        scenario_title = scenario_name
+    net = FNN(3, cfg.signal.e_max, cfg.ga.offset_frac) if controller == "fixed" else _load_synthetic_model(cfg)
+    if controller == "coord":
+        net = net.expand_to_4_inputs()
     probe = GridSim(ROWS, COLS, lambda _: FixedController([20, 20]), cfg)
     base = entry_rates(probe, sc["side_vph"], cfg.road.lanes)
     rates = base[:, None] * sc["shape"][None]
-    ef = expected_side_flows(ROWS, COLS, rates.mean(axis=1), probe.entries, cfg.road.turn_probs)
-    # Keep the playback window fixed so timing changes preserve the arrival sequence.
-    incident_cap, default_inc0, _ = configs["incident"]["exit_caps"]["E"]
-    t0 = default_inc0 - 300
-    inc0 = t0 + int(round(incident_start * 60))
-    inc1 = t0 + int(round(incident_end * 60))
-    exit_caps = {"E": (incident_cap, inc0, inc1)} if scenario == "incident" else {}
+    ef = expected_side_flows(ROWS, COLS, base * sc["shape"].mean(), probe.entries, cfg.road.turn_probs)
     log = {}
     choices = {
-        "coord": ("FNN-GA coordinated (shared input D)", lambda n: LoggedFNN(net4, cfg, n, log), net4),
-        "naive": ("FNN-GA naive (isolated copies)", lambda n: LoggedFNN(net3, cfg, n, log), net3),
-        "fixed": ("Fixed cycle (Webster)", lambda n: FixedController(webster_plan(ef[n], cfg)), net3),
+        "coord": ("FNN-GA coordinated", lambda n: LoggedFNN(net, cfg, n, log)),
+        "naive": ("FNN-GA naive", lambda n: LoggedFNN(net, cfg, n, log)),
+        "fixed": ("Fixed cycle (Webster)", lambda n: FixedController(webster_plan(ef[n], cfg))),
     }
-    title, mk, net = choices[controller]
+    title, mk = choices[controller]
+    flows = sc["side_vph"]
+    demand = f"{flows['N']} N/S, {flows['E']} E, {flows['W']} W veh/h/lane"
 
     def clock(t):
-        if scenario == "rush-hour":
-            factor = sc["shape"][min(int(t), len(sc["shape"]) - 1)]
-            state = f"RUSH HOUR: input traffic {factor:.2f}x baseline"
-        else:
-            state = ("INCIDENT: east exits 900 veh/h"
-                     if scenario == "incident" and inc0 <= t < inc1 else "east exits normal")
-        return f"t = {_hms(t - t0)}   {state}"
-    scenario_title = {
-        None: "normal balanced traffic",
-        "rush-hour": "rush hour (demand rises to 1.9x, then falls)",
-        "incident": f"eastbound exit incident (minutes {incident_start:g}-{incident_end:g})",
-    }[scenario]
+        detail = demand
+        if scenario_name == "rush hour":
+            detail = f"{sc['shape'][t]:.2f}x base demand ({demand})"
+        elif scenario_name == "incident":
+            state = "east exits capped at 900 veh/h each" if start <= t < end else "east exits normal"
+            detail = f"{state}   |   {demand}"
+        return f"t = {_hms(t - t0)}   |   {detail}"
+
     return dict(cfg=cfg, rows=ROWS, cols=COLS, make=mk, rates=rates,
-                duration=sc["duration"], t0=t0, t1=t0 + 3600, every=2, exit_caps=exit_caps,
+                duration=sc["duration"], t0=t0, t1=sc["duration"], every=2, exit_caps=exit_caps,
                 lane_w=6.0, marker=5, log=log, net=net, sel=(1, 1), choices=list(choices), clock=clock,
                 title=f"Part B - 3x3 grid, {scenario_title}: {title}")
 
 
 def scene_c(controller, data_path):
+    """Replay the Part C comparison on the report's held-out METR-LA date."""
     import pandas as pd
     from semaphore import metrla as M
     from experiments.part_b import ROWS, COLS
+
     cfg = DEFAULT
-    net3 = FNN.load(R.MODELS / "fnn3_trained.npz", cfg.ga.offset_frac)
-    net4 = net3.expand_to_4_inputs()
+    controller = {"naive": "synthetic-naive", "coord": "synthetic-coord"}.get(controller, controller)
+    models = {
+        "synthetic-naive": ("fnn3_trained.npz", "Synthetic-trained FNN (Naive)", False),
+        "synthetic-coord": ("fnn3_trained.npz", "Synthetic-trained FNN (Coord)", True),
+        "metr-naive": ("fnn3_retuned_real.npz", "METR-LA-trained FNN (Naive)", False),
+        "metr-coord": ("fnn3_retuned_real.npz", "METR-LA-trained FNN (Coord)", True),
+    }
+    log = {}
+    if controller == "fixed":
+        net = FNN(3, cfg.signal.e_max, cfg.ga.offset_frac)
+        title = "Fixed cycle (Webster, daily mean)"
+    else:
+        model, title, coordinated = models[controller]
+        path = R.MODELS / model
+        if not path.is_file():
+            part = "C" if controller.startswith("metr-") else "A"
+            raise FileNotFoundError(f"{path} missing. Run python main.py --part {part} first.")
+        net = FNN.load(path, cfg.ga.offset_frac)
+        if coordinated:
+            net = net.expand_to_4_inputs()
+
     print("    loading METR-LA ...")
     raw = M.load_metrla(data_path)
+    day = pd.Timestamp("2012-03-13")
+    samples = pd.date_range(day, periods=288, freq="5min")
+    if not samples.isin(raw.index).all():
+        raise ValueError("Part C requires all 5-minute timestamps for 13 March 2012 in METR-LA.")
     clean, _, _ = M.clean(raw)
     sensors, _ = M.choose_sensors(raw, 12)
-    day = M.choose_days(raw, sensors, 2)[0]
     vf = M.free_flow_speed(clean[sensors])
-    lam, _, _ = M.speed_to_demand(clean.loc[day:day + pd.Timedelta("23:55:00"), sensors], vf)
+    lam, _, _ = M.speed_to_demand(clean.loc[samples, sensors], vf)
     rates = M.to_per_second(lam, cfg.road.lanes)
-    probe = GridSim(ROWS, COLS, lambda _: FixedController([20, 20]), cfg)
-    ef = expected_side_flows(ROWS, COLS, rates.mean(axis=1), probe.entries, cfg.road.turn_probs)
-    log = {}
-    choices = {
-        "coord": ("FNN-GA coordinated", lambda n: LoggedFNN(net4, cfg, n, log), net4),
-        "naive": ("FNN-GA naive", lambda n: LoggedFNN(net3, cfg, n, log), net3),
-        "fixed": ("Fixed cycle (Webster, daily mean)", lambda n: FixedController(webster_plan(ef[n], cfg)), net3),
-    }
-    title, mk, net = choices[controller]
-    return dict(cfg=cfg, rows=ROWS, cols=COLS, make=mk, rates=rates, duration=86400, t0=6 * 3600,
+    if controller == "fixed":
+        probe = GridSim(ROWS, COLS, lambda _: FixedController([20, 20]), cfg)
+        ef = expected_side_flows(ROWS, COLS, rates.mean(axis=1), probe.entries, cfg.road.turn_probs)
+
+        def make(node):
+            return FixedController(webster_plan(ef[node], cfg))
+    else:
+        def make(node):
+            return LoggedFNN(net, cfg, node, log)
+
+    return dict(cfg=cfg, rows=ROWS, cols=COLS, make=make, rates=rates, duration=86400, t0=6 * 3600,
                 t1=11 * 3600, every=5, exit_caps=None, lane_w=6.0, marker=5, log=log, net=net, sel=(1, 1),
-                choices=list(choices), clock=lambda t: f"{_hms(t)}  ({day.date()}, real METR-LA demand)",
-                title=f"Part C - 3x3 grid driven by METR-LA sensors, morning rush: {title}")
+                choices=["fixed", *models], clock=lambda t: f"{_hms(t)}  ({day.date()}, METR-LA demand)",
+                title=f"Part C - 3x3 grid, 13 March 2012, 06:00-11:00: {title}")
 
 
 def _hms(t):
@@ -239,7 +264,9 @@ def simulate(sc, seed):
                   record_timeseries=False)
     rec = Recorder(sim, sc["t0"], sc["t1"], sc["every"], sc["cfg"].road.link_length_m,
                    sc["cfg"].road.jam_spacing_m, sc["lane_w"])
-    sim.run(min(sc["duration"], sc["t1"] + 1), sc["rates"], hooks=[rec])
+    # Part C's report samples arrivals through 11:00:00. Keep the same RNG
+    # array shape so the displayed frames match the report's 06:00–11:00 replay.
+    sim.run(min(sc["duration"], sc["t1"] + 1), sc["rates"], warmup=sc["t0"], hooks=[rec])
     return sim, rec
 
 
@@ -421,7 +448,8 @@ class Viewer:
         # signal timeline
         lo = np.searchsorted(self.times, f["t"] - 300)
         self.tl_img.set_data(self.parr[n][lo:k + 1][None])
-        self.tl_img.set_extent((self.times[lo] - f["t"], 0.0, 0, 1))
+        left = min(self.times[lo] - f["t"], -self.sc["every"])
+        self.tl_img.set_extent((left, 0.0, 0, 1))
         # queue history
         lo2 = np.searchsorted(self.times, f["t"] - 600)
         tt = self.times[lo2:k + 1] - f["t"]
@@ -476,9 +504,10 @@ class Viewer:
         else:
             act = "end this green now -> switch phase"
         prev = st == "G" and d["phase"] != ph
-        note = ("   [previous green - next decision at g_min = 10 s]" if prev else "")
-        self.out.set_text(f"what it does: dt = {dt:4.1f} s   (decided {ago:.0f} s ago, "
-                          f"{'N-S' if d['phase'] == 0 else 'E-W'} green){note}\n-> {act}")
+        decision_phase = "N-S" if d["phase"] == 0 else "E-W"
+        if prev:
+            act = "previous phase's decision, waiting for the next one"
+        self.out.set_text(f"last decision: dt = {dt:4.1f} s   ({decision_phase} green, {ago:.0f} s ago)\n-> {act}")
 
     def _tick(self, _):
         if not self.paused:
@@ -497,47 +526,80 @@ class Viewer:
         print(f"saved {path}")
 
 
+def select_backend(snapshot):
+    if snapshot:
+        plt.switch_backend("Agg")
+        return
+    backends = ("TkAgg", "QtAgg", "GTK3Agg")
+    if sys.platform == "darwin":
+        backends = ("MacOSX", *backends)
+    for backend in backends:
+        try:
+            plt.switch_backend(backend)
+            plt.close(plt.figure())
+            return
+        except Exception:
+            # An installed backend may still be unable to open a window.
+            continue
+    sys.exit("No window backend available. On Ubuntu install python3-tk, "
+             "or use --snapshot file.png to save a frame.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--part", choices=["A", "B", "C"], default="A")
     ap.add_argument("--controller", default=None,
-                    help="A: fnn | flc | fixed    B, C: coord | naive | fixed   (default: the trained/coordinated one)")
+                    help="A: fnn, flc, fixed. B: coord, naive, fixed. "
+                         "C: synthetic-coord, synthetic-naive, metr-coord, metr-naive, fixed")
     ap.add_argument("--data", default=str(ROOT / "data" / "kaggle" / "METR-LA.h5"))
-    ap.add_argument("--seed", type=int, default=11)
-    ap.add_argument("--scenario", choices=["incident", "rush-hour"], default=None,
-                    help="Part B: choose an event (default: normal balanced traffic)")
+    ap.add_argument("--seed", type=int, help="arrival seed (defaults: A 1000, B 2000, C 11)")
+    ap.add_argument("--scenario", help="A: low, medium, high, very-high (default), asymmetric. "
+                                      "B: balanced (default), rush-hour, incident. C: one METR-LA replay")
     ap.add_argument("--incident-start", type=float, default=None,
-                    help="Part B: incident start in playback minutes (default: 5)")
+                    help="Part B: incident start in minutes after warm-up (default: 20)")
     ap.add_argument("--incident-end", type=float, default=None,
-                    help="Part B: incident end in playback minutes (default: 35; maximum: 60)")
+                    help="Part B: incident end in minutes after warm-up (default: 50; maximum: 90)")
     ap.add_argument("--snapshot", default=None, help="save one frame to this PNG instead of opening a window")
     ap.add_argument("--at", type=float, default=600, help="with --snapshot: seconds into the scene")
     a = ap.parse_args()
+    from experiments.part_a import SCENARIOS
+
+    scenarios = {"A": tuple(name.replace(" ", "-") for name in SCENARIOS),
+                 "B": ("balanced", "rush-hour", "incident"), "C": ()}
+    controllers = {"A": ("fnn", "flc", "fixed"), "B": ("coord", "naive", "fixed"),
+                   "C": ("synthetic-coord", "synthetic-naive", "metr-coord", "metr-naive", "fixed")}
+    if a.scenario is not None and a.scenario not in scenarios[a.part]:
+        if not scenarios[a.part]:
+            ap.error("Part C uses the METR-LA replay and does not take --scenario")
+        ap.error(f"invalid scenario for Part {a.part}; choose: {', '.join(scenarios[a.part])}")
+    ctrl = a.controller or controllers[a.part][0]
+    if a.part == "C" and ctrl in ("coord", "naive"):
+        ctrl = f"synthetic-{ctrl}"
+    if ctrl not in controllers[a.part]:
+        ap.error(f"invalid controller for Part {a.part}; choose: {', '.join(controllers[a.part])}")
+    seed = {"A": 1000, "B": 2000, "C": 11}[a.part] if a.seed is None else a.seed
+    if seed < 0:
+        ap.error("--seed must be nonnegative")
+    if not np.isfinite(a.at) or a.at < 0:
+        ap.error("--at must be a finite number of seconds >= 0")
     custom_incident = a.incident_start is not None or a.incident_end is not None
-    if (a.scenario is not None or custom_incident) and a.part != "B":
-        ap.error("scenario and incident options are only available for Part B")
-    if custom_incident and a.scenario != "incident":
-        ap.error("--incident-start and --incident-end require --scenario incident")
-    incident_start = 5.0 if a.incident_start is None else a.incident_start
-    incident_end = 35.0 if a.incident_end is None else a.incident_end
-    if not 0 <= incident_start < incident_end <= 60:
-        ap.error("incident times must satisfy 0 <= start < end <= 60 playback minutes")
-    if round(incident_start * 60) >= round(incident_end * 60):
-        ap.error("incident must last at least one second after rounding to simulation seconds")
-    if not (R.MODELS / "fnn3_trained.npz").exists():
-        sys.exit("models/fnn3_trained.npz missing - run  python main.py --part A  first")
-    ctrl = a.controller or {"A": "fnn", "B": "coord", "C": "coord"}[a.part]
-    if a.part == "A":
-        sc = scene_a(ctrl)
-    elif a.part == "B":
-        sc = scene_b(ctrl, scenario=a.scenario,
-                     incident_start=incident_start, incident_end=incident_end)
-    else:
-        if not Path(a.data).exists():
-            sys.exit(f"{a.data} not found - put the Kaggle METR-LA.h5 there (see README)")
-        sc = scene_c(ctrl, a.data)
-    print(f"Simulating Part {a.part} with controller '{ctrl}' ...")
-    sim, rec = simulate(sc, a.seed)
+    if custom_incident and not (a.part == "B" and a.scenario == "incident"):
+        ap.error("incident timing options require --part B --scenario incident")
+    try:
+        if a.part == "A":
+            sc = scene_a(ctrl, scenario=a.scenario or "very-high")
+        elif a.part == "B":
+            sc = scene_b(ctrl, scenario=a.scenario,
+                         incident_start=a.incident_start, incident_end=a.incident_end)
+        else:
+            if not Path(a.data).is_file():
+                ap.error(f"{a.data} not found. Put METR-LA.h5 in data/kaggle or set --data.")
+            sc = scene_c(ctrl, a.data)
+    except (FileNotFoundError, ValueError) as exc:
+        ap.error(str(exc))
+    select_backend(a.snapshot)
+    print(f"{sc['title']} (seed {seed})", flush=True)
+    sim, rec = simulate(sc, seed)
     v = Viewer(sc, sim, rec)
     if a.snapshot:
         v.snapshot(a.snapshot, a.at)
